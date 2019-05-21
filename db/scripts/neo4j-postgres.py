@@ -41,6 +41,8 @@ default_wake_words = {
     'hey jarvis': jarvis
 }
 
+mapped_locations = {}
+
 
 def load_csv():
     with open('users.csv') as user_csv:
@@ -526,37 +528,14 @@ def fill_device_table():
 
     def map_geography(account_id, device_id):
         geography_id = str(uuid.uuid4())
-        with db.cursor() as cur:
-            query = """
-            SELECT
-                city.id, region.id, country.id, timezone.id
-            FROM 
-                geography.city city
-            INNER JOIN
-                geography.region region ON city.region_id = region.id
-            INNER JOIN
-                geography.country country ON region.country_id = country.id
-            INNER JOIN
-                geography.timezone timezone ON country.id = timezone.country_id
-            WHERE
-                city.name = %s and region.name = %s and timezone.name = %s and country.name = %s;
-            """
-            location_uuid = devices[device_id].get('location')
-            if location_uuid is not None:
-                location = locations[location_uuid]
-                timezone_entity = timezones[location['timezone']]
-                timezone = timezone_entity['code']
-                city_entity = cities[location['city']]
-                city = city_entity['name']
-                region_entity = regions[city_entity['region']]
-                region = region_entity['name']
-                country_entity = countries[region_entity['country']]
-                country = country_entity['name']
-                cur.execute(query, (city, region, timezone, country))
-                result = cur.fetchone()
-                if result is not None:
-                    city, region, country, timezone = result
-                    return geography_id, account_id, country, region, city, timezone
+        location_uuid = devices[device_id].get('location')
+        if location_uuid is not None:
+            location_found = mapped_locations.get(location_uuid)
+            if location_found is not None:
+                print('Location found')
+                city, region, country, timezone = location_found
+                return geography_id, account_id, country, region, city, timezone
+        print('location not found')
         return geography_id, account_id, country_default, region_default, city_default, timezone_default
 
     def map_device(device_id):
@@ -649,51 +628,7 @@ def fill_skills_table():
         execute_batch(curr, query, device_skill_batch, page_size=1000)
 
 
-def analyze_locations():
-    matches = 0
-    mismatches = 0
-    g_mismatches = defaultdict(lambda: defaultdict(list))
-    for city in cities.values():
-        region = regions[city['region']]
-        country = countries[region['country']]
-        city_name = city['name']
-        region_name = region['name']
-        country_name = country['name']
-        remove = ['District', 'Region', 'Development', 'Prefecture', 'Community', 'County', 'Province', 'Division', 'Voivodeship', 'State', 'of', 'Governorate']
-        with db.cursor() as curr:
-            original_region_name = region_name
-            region_name = ' '.join(i for i in region_name.split() if i not in remove)
-            query = 'select city.name ' \
-                    'from geography.city city ' \
-                    'inner join geography.region region on city.region_id = region.id ' \
-                    'inner join geography.country country on region.country_id = country.id ' \
-                    'where ' \
-                    'city.name = \'{}\' and ' \
-                    '(region.name = \'{}\' or region.name = \'{}\') and ' \
-                    'country.name = \'{}\''\
-                    .format(
-                        city_name.replace('\'', '\'\''),
-                        original_region_name.replace('\'', '\'\''),
-                        region_name.replace('\'', '\'\''),
-                        country_name.replace('\'', '\'\'')
-                    )
-            curr.execute(query)
-            result = curr.fetchone()
-            if result is None:
-                mismatches += 1
-                g_mismatches[country_name][region_name].append(city_name)
-            else:
-                matches += 1
-
-    for country2, regions2 in g_mismatches.items():
-        for region2, cities2 in regions2.items():
-            for city2 in cities2:
-                print('{} - {} - {}'.format(country2, region2, city2))
-
-    print('Number os mismatches: {}'.format(mismatches))
-
-
-def analyze_location_2():
+def convert_location():
     aux = defaultdict(lambda: defaultdict(lambda: defaultdict(tuple)))
 
     locations_from_db = defaultdict(list)
@@ -712,12 +647,15 @@ def analyze_location_2():
                     'from geography.city c1 '
                     'inner join geography.region r on c1.region_id = r.id '
                     'inner join geography.country c2 on r.country_id = c2.id '
-                    'inner join geography.timezone t on c.timezone_id = t.id')
+                    'inner join geography.timezone t on c1.timezone_id = t.id')
         for c1_id, c1, latitude, longitude, r_id, r_name, c2_id, c2_name, c2_code, t_id in cur:
             aux[c2_name][r_name][c1] = (c1_id, r_id, c2_id, t_id)
             locations_from_db[c2_code].append((c1_id, r_id, c2_id, t_id, latitude, longitude))
 
+    count = 1
     for location_uuid, location in locations.items():
+        print('Locations converted {}'.format(count))
+        count += 1
         coordinate = coordinates[location_uuid]
         city = cities[location['city']]
         city_name = city['name']
@@ -735,7 +673,7 @@ def analyze_location_2():
                 res = res.get(city_name)
                 if res is not None:
                     geography_ids = res
-                    print('Geography: {}'.format(geography_ids))
+                    mapped_locations[location_uuid] = geography_ids
                     continue
         min_dist = None
         for c1_id, r_id, c2_id, t_id, latitude, longitude in locations_from_db[country_code]:
@@ -745,7 +683,7 @@ def analyze_location_2():
             if min_dist is None or dist < min_dist:
                 min_dist = dist
                 geography_ids = (c1_id, r_id, c2_id, t_id)
-        print('Geography: {}'.format(geography_ids))
+        mapped_locations[location_uuid] = geography_ids
 
 
 start = time.time()
@@ -756,23 +694,26 @@ print('Time to load CSVs {}'.format(end - start))
 
 start = time.time()
 print('Importing account table')
-#fill_account_table()
+fill_account_table()
 print('Importing agreements table')
-#fill_account_agreement_table()
+fill_account_agreement_table()
 print('Importing account preferences table')
-#fill_account_preferences_table()
+fill_account_preferences_table()
 print('Importing subscription table')
-#fill_subscription_table()
+fill_subscription_table()
 print('Importing wake word table')
-#fill_default_wake_word()
-#fill_wake_word_table()
+fill_default_wake_word()
+fill_wake_word_table()
 print('Importing wake word settings table')
-#fill_wake_word_settings_table()
+fill_wake_word_settings_table()
+print('Changing device names')
+change_device_name()
+print('Converting locations')
+convert_location()
 print('Importing device table')
-#change_device_name()
-#fill_device_table()
+fill_device_table()
 print('Importing skills table')
 #fill_skills_table()
-analyze_location_2()
+convert_location()
 end = time.time()
 print('Time to import: {}'.format(end-start))

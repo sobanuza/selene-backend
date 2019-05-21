@@ -229,7 +229,7 @@ mycroft_db.db.autocommit = False
 insert_sql = (
     "insert into account.agreement VALUES (default, '{}', '1', '[today,]', {})"
 )
-doc_dir = '/Users/chrisveilleux/Mycroft/github/documentation/_pages/'
+doc_dir = '/home/matheus/development/workspace/mycroft/docs-rewrite/_pages/'
 docs = {
     'Privacy Policy': doc_dir + 'embed-privacy-policy.md',
     'Terms of Use': doc_dir + 'embed-terms-of-use.md'
@@ -267,7 +267,7 @@ else:
 
 mycroft_db.db.autocommit = True
 
-reference_file_dir = '/Users/chrisveilleux/Mycroft'
+reference_file_dir = '/home/matheus/development/workspace/mycroft/geographies'
 
 print('Building geography.country table')
 country_file = 'country.txt'
