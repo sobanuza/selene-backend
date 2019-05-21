@@ -1,5 +1,5 @@
 users.csv
-match (n:User) return n.uuid, n.email, n.password, n.termsOfUseDate, n.privacyPolicyDate
+match (n:User) return n.uuid, n.email, n.password, n.termsOfUseDate, n.privacyPolicyDate, u.createdAt
 
 subscription.csv
 match (n) where ((n:MonthlyAccount) or (n:YearlyAccount)) and n.expiratesAt is not null set n.expiresAt = n.expiratesAt
@@ -14,7 +14,7 @@ match (n:User)-[:LIVES_AT]->()-[:COORDINATE]->(coord) return n.uuid, coord.latit
 user_setting.csv
 match (n:User)-[:SETTING]->(setting)-[:TTS_SETTING]->(tts:Active), (setting)-[:LISTENER_SETTING]->(listener)
 with filter(l in labels(tts) where l <> 'Active') as s, n, tts, setting, listener
-return n.uuid, setting.dateFormat, setting.timeFormat, setting.systemUnit, s[0], tts.voice, listener.wakeWord, listener.sampleRate, listener.channels, listener.phonemes, listener.threshold, listener.multiplier, listener.energyRatio
+return n.uuid, setting.dateFormat, setting.timeFormat, setting.systemUnit, s[0], tts.voice, listener.wakeWord, listener.sampleRate, listener.channels, listener.phonemes, listener.threshold, listener.multiplier, listener.energyRatio, setting.optIn
 
 device.csv
 match (user:User)-[:DEVICE]->(n:Device) return n.uuid, user.uuid, n.name, n.description, n.platform, n.enclosureVersion, n.coreVersion

@@ -53,6 +53,7 @@ def load_csv():
             users[row[0]]['password'] = row[2]
             users[row[0]]['terms'] = row[3]
             users[row[0]]['privacy'] = row[4]
+            users[row[0]]['insert_ts'] = row[5]
 
     with open('user_settings.csv') as user_setting_csv:
         user_setting_reader = csv.reader(user_setting_csv)
@@ -71,6 +72,7 @@ def load_csv():
             user_settings[row[0]]['threshold'] = row[10]
             user_settings[row[0]]['threshold_multiplier'] = row[11]
             user_settings[row[0]]['dynamic_energy_ratio'] = row[12]
+            user_settings[row[0]]['optIn'] = row[13]
 
     with open('subscription.csv') as subscription_csv:
         subscription_reader = csv.reader(subscription_csv)
@@ -281,21 +283,25 @@ def fill_account_table():
     query = 'insert into account.account(' \
             'id, ' \
             'email_address, ' \
-            'password) ' \
-            'values (%s, %s, %s)'
+            'password,' \
+            'insert_ts) ' \
+            'values (%s, %s, %s, %s)'
     with db.cursor() as cur:
-        accounts = ((uuid, account['email'], account['password']) for uuid, account in users.items())
+        accounts = ((uuid, account['email'], account['password'], format_timestamp(account['insert_ts'])) for uuid, account in users.items())
         execute_batch(cur, query, accounts, page_size=1000)
 
 
 def fill_account_agreement_table():
+    opt_in_date = f'{datetime.datetime.utcnow():%Y-%m-%d %H:%M:%S}'
     query = 'insert into account.account_agreement(account_id, agreement_id, accept_date)' \
             'values (%s, (select id from account.agreement where agreement = %s), %s)'
     with db.cursor() as cur:
         terms = ((uuid, 'Terms of Use', format_timestamp(account['terms'])) for uuid, account in users.items() if account['terms'] != '')
         privacy = ((uuid, 'Privacy Policy', format_timestamp(account['privacy'])) for uuid, account in users.items() if account['privacy'] != '')
+        opt_in = ((uuid, 'Open Dataset', opt_in_date) for uuid in users.keys() if uuid in user_settings and user_settings[uuid].get('optIn') == 'true')
         execute_batch(cur, query, terms, page_size=1000)
         execute_batch(cur, query, privacy, page_size=1000)
+        execute_batch(cur, query, opt_in, page_size=1000)
 
 
 def fill_default_wake_word():
@@ -688,7 +694,7 @@ def analyze_locations():
 
 
 def analyze_location_2():
-    aux = defaultdict(lambda: defaultdict(lambda: defaultdict(str)))
+    aux = defaultdict(lambda: defaultdict(lambda: defaultdict(tuple)))
 
     locations_from_db = defaultdict(list)
     with db.cursor() as cur:
@@ -697,15 +703,19 @@ def analyze_location_2():
                     'c1.name, '
                     'c1.latitude, '
                     'c1.longitude, '
+                    'r.id, '
                     'r.name, '
+                    'c2.id, '
                     'c2.name, '
-                    'c2.iso_code '
+                    'c2.iso_code, '
+                    't.id '
                     'from geography.city c1 '
                     'inner join geography.region r on c1.region_id = r.id '
-                    'inner join geography.country c2 on r.country_id = c2.id')
-        for c1_id, c1, latitude, longitude, r, c2_name, c2_code in cur:
-            aux[c2_name][r][c1] = c1_id
-            locations_from_db[c2_code].append((c1, latitude, longitude))
+                    'inner join geography.country c2 on r.country_id = c2.id '
+                    'inner join geography.timezone t on c.timezone_id = t.id')
+        for c1_id, c1, latitude, longitude, r_id, r_name, c2_id, c2_name, c2_code, t_id in cur:
+            aux[c2_name][r_name][c1] = (c1_id, r_id, c2_id, t_id)
+            locations_from_db[c2_code].append((c1_id, r_id, c2_id, t_id, latitude, longitude))
 
     for location_uuid, location in locations.items():
         coordinate = coordinates[location_uuid]
@@ -718,23 +728,24 @@ def analyze_location_2():
         country_name = country['name']
 
         res = aux.get(country_name)
+        geography_ids = None
         if res is not None:
             res = res.get(region_name)
             if res is not None:
                 res = res.get(city_name)
                 if res is not None:
-                    print('Match: {}'.format(city_name))
+                    geography_ids = res
+                    print('Geography: {}'.format(geography_ids))
                     continue
         min_dist = None
-        result_name = None
-        for c1_name, latitude, longitude in locations_from_db[country_code]:
+        for c1_id, r_id, c2_id, t_id, latitude, longitude in locations_from_db[country_code]:
             point1 = (float(latitude), float(longitude))
             point2 = (float(coordinate['latitude']), float(coordinate['longitude']))
             dist = distance(point1, point2).km
             if min_dist is None or dist < min_dist:
                 min_dist = dist
-                result_name = c1_name
-        print('Actual: {}, calculated: {}'.format(city_name, result_name))
+                geography_ids = (c1_id, r_id, c2_id, t_id)
+        print('Geography: {}'.format(geography_ids))
 
 
 start = time.time()
