@@ -1,5 +1,5 @@
 # Mycroft Server - Backend
-# Copyright (C) 2019 Mycroft AI Inc
+# Copyright (C) 2020 Mycroft AI Inc
 # SPDX-License-Identifier: 	AGPL-3.0-or-later
 #
 # This file is part of the Mycroft Server.
@@ -16,11 +16,16 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""Defines data entities related to account activity metrics."""
+from dataclasses import dataclass
 
-from .entity.api import ApiMetric
-from .entity.core import CoreMetric, CoreInteraction
-from .entity.job import JobMetric
-from .repository.account_activity import AccountActivityRepository
-from .repository.api import ApiMetricsRepository
-from .repository.core import CoreMetricRepository
-from .repository.job import JobRepository
+
+@dataclass
+class AccountActivity:
+    """Data class representing a row on the account_activity table."""
+
+    added: int
+    deleted: int
+    active: int
+    active_open_dataset: int
+    active_member: int
